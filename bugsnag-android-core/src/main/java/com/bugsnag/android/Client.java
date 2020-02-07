@@ -16,10 +16,12 @@ import androidx.annotation.Nullable;
 
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
+import kotlin.jvm.functions.Function2;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Observer;
@@ -67,6 +69,9 @@ public class Client implements MetadataAware, CallbackAware, UserAware {
 
     final SystemBroadcastReceiver systemBroadcastReceiver;
     final SessionTracker sessionTracker;
+
+    final ActivityBreadcrumbCollector activityBreadcrumbCollector;
+    final SessionLifecycleCallback sessionLifecycleCallback;
     private final SharedPreferences sharedPrefs;
 
     private final OrientationEventListener orientationListener;
@@ -185,12 +190,23 @@ public class Client implements MetadataAware, CallbackAware, UserAware {
         int maxBreadcrumbs = immutableConfig.getMaxBreadcrumbs();
         breadcrumbState = new BreadcrumbState(maxBreadcrumbs, callbackState, logger);
 
+        activityBreadcrumbCollector = new ActivityBreadcrumbCollector(
+                new Function2<String, Map<String, ? extends Object>, Unit>() {
+                    @SuppressWarnings("unchecked")
+                    @Override
+                    public Unit invoke(String activity, Map<String, ?> metadata) {
+                        leaveBreadcrumb(activity, BreadcrumbType.NAVIGATION,
+                                (Map<String, Object>) metadata);
+                        return null;
+                    }
+                }
+        );
+        sessionLifecycleCallback = new SessionLifecycleCallback(sessionTracker);
+
         if (appContext instanceof Application) {
             Application application = (Application) appContext;
-            application.registerActivityLifecycleCallbacks(sessionTracker);
-        } else {
-            logger.w("Bugsnag is unable to setup automatic activity lifecycle "
-                + "breadcrumbs on API Levels below 14.");
+            application.registerActivityLifecycleCallbacks(sessionLifecycleCallback);
+            application.registerActivityLifecycleCallbacks(activityBreadcrumbCollector);
         }
 
         InternalReportDelegate delegate = new InternalReportDelegate(appContext, logger,
